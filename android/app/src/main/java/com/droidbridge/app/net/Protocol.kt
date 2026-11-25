@@ -62,6 +62,13 @@ object Protocol {
     const val MSG_DEVICE_STATUS: Byte = 0x41
     const val MSG_DEVICE_TELEMETRY: Byte = 0x42
 
+    // Call control (phone <-> Mac), public APIs only
+    const val MSG_CALL_STATE: Byte = 0x50
+    const val MSG_CALL_ANSWER: Byte = 0x51
+    const val MSG_CALL_END: Byte = 0x52
+    const val MSG_CALL_DIAL: Byte = 0x53
+    const val MSG_CALL_RESULT: Byte = 0x54
+
     // Video/Audio channel binary message types (unsigned byte values)
     const val MSG_VIDEO_CONFIG: Byte = 0x80.toByte()
     const val MSG_VIDEO_FRAME: Byte = 0x81.toByte()
@@ -267,6 +274,27 @@ data class DeviceTelemetryPayload(
     val avgEncryptUs: Double = 0.0,
     val avgSocketWriteMs: Double = 0.0,
     val droppedFrames: Long = 0L
+)
+
+@Serializable
+data class CallStatePayload(
+    val state: String, // "idle" | "ringing" | "active"
+    val name: String? = null,
+    val number: String? = null,
+    val key: String? = null,
+    val startTimeMs: Long = 0L
+)
+
+@Serializable
+data class CallDialPayload(
+    val number: String
+)
+
+@Serializable
+data class CallResultPayload(
+    val action: String, // "answer" | "end" | "dial"
+    val ok: Boolean,
+    val message: String? = null
 )
 
 // --- Binary Video & Audio Codecs ---

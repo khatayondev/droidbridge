@@ -37,6 +37,7 @@ sealed class IncomingControlEvent {
     data class InputKey(val payload: InputKeyPayload) : IncomingControlEvent()
     data class InputGlobal(val payload: InputGlobalPayload) : IncomingControlEvent()
     data class Clipboard(val payload: ClipboardPayload) : IncomingControlEvent()
+    data class CallNotificationAction(val answer: Boolean) : IncomingControlEvent()
 }
 
 /**

@@ -50,6 +50,19 @@ private struct MenuBarContentView: View {
                 Text("Waiting for phone (port \(server.listeningPort))")
             }
 
+            if let call = coordinator.activeCall {
+                Text(call.phase == .ringing
+                     ? "📞 \(call.displayName) — Incoming call"
+                     : "📞 \(call.displayName) — In call")
+                if call.phase == .ringing {
+                    Button("Answer Call") { coordinator.answerCall() }
+                    Button("Decline Call") { coordinator.declineCall() }
+                } else {
+                    Button("End Call") { coordinator.declineCall() }
+                }
+                Divider()
+            }
+
             Divider()
 
             Button("Open Phone") {
@@ -57,6 +70,11 @@ private struct MenuBarContentView: View {
             }
             .disabled(server.activePhone == nil)
             .keyboardShortcut("o")
+
+            Button("Call a Number…") {
+                coordinator.openCallWindow()
+            }
+            .disabled(server.activePhone == nil)
 
             if server.activePhone != nil {
                 Button("End Phone Capture Session") {

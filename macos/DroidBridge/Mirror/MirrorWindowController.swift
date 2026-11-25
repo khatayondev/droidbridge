@@ -30,6 +30,7 @@ public final class MirrorViewModel: ObservableObject {
     public var onSendKey: ((String) -> Void)?
     public var onSendGlobal: ((String) -> Void)?
     public var onPasteClipboard: (() -> Void)?
+    public var onMakeCall: (() -> Void)?
     public var onResizePresetChanged: ((MirrorSizePreset) -> Void)?
 
     public init(decoder: VideoDecoder, telemetry: TelemetryRecorder = TelemetryRecorder()) {
@@ -204,6 +205,12 @@ struct MirrorWindowContentView: View {
                     Image(systemName: "bell")
                 }
                 .help("Notifications (⌘N)")
+
+                Button { viewModel.onMakeCall?() } label: {
+                    Image(systemName: "phone")
+                }
+                .help("Call a Number (dials on the phone)")
+                .disabled(viewModel.uiState != .streaming)
 
                 Spacer()
 

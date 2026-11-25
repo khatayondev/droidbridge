@@ -12,6 +12,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Base64
 import androidx.core.app.NotificationCompat
+import com.droidbridge.app.calls.CallController
 import com.droidbridge.app.net.AppIconPayload
 import com.droidbridge.app.net.BridgeConnectionState
 import com.droidbridge.app.net.BridgeEventBus
@@ -71,6 +72,7 @@ class NotifyBridgeService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         sbn ?: return
+        CallController.onCallNotificationRemoved(sbn.key)
         filter.onRemoved(sbn.key)
         BridgeEventBus.sendControl(
             Protocol.MSG_NOTIF_REMOVED,
@@ -92,6 +94,7 @@ class NotifyBridgeService : NotificationListenerService() {
         val notif = sbn.notification ?: return
         val extras = notif.extras ?: Bundle.EMPTY
         val isGroupSummary = (notif.flags and Notification.FLAG_GROUP_SUMMARY) != 0
+        val isCall = notif.category == Notification.CATEGORY_CALL
 
         val messagingStyle = runCatching {
             NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notif)
@@ -119,9 +122,17 @@ class NotifyBridgeService : NotificationListenerService() {
                 isGroupSummary = isGroupSummary,
                 title = title,
                 text = plainText,
-                hasMessages = messages.isNotEmpty()
+                hasMessages = messages.isNotEmpty(),
+                isCall = isCall
             )
         ) {
+            return
+        }
+
+        if (isCall) {
+            // Call notifications are routed through the dedicated call channel so the Mac can
+            // render Answer/Decline instead of a generic message banner.
+            CallController.onCallNotification(title, plainText, sbn.key)
             return
         }
 
@@ -188,6 +199,7 @@ class NotifyBridgeService : NotificationListenerService() {
                     is IncomingControlEvent.NotifDismiss -> handleDismiss(event.key)
                     is IncomingControlEvent.NotifReply -> handleReply(event.key, event.text)
                     is IncomingControlEvent.NotifAction -> handleAction(event.key, event.actionIndex)
+                    is IncomingControlEvent.CallNotificationAction -> handleCallNotificationAction(event.answer)
                     is IncomingControlEvent.AppIconRequest -> {
                         sentAppIcons.remove(event.pkg)
                         sendAppIconIfNeeded(event.pkg, resolveAppName(event.pkg))
@@ -196,6 +208,22 @@ class NotifyBridgeService : NotificationListenerService() {
                 }
             }
         }
+    }
+
+    /** Fallback path when ANSWER_PHONE_CALLS is unavailable: tap the dialer's own call action. */
+    private fun handleCallNotificationAction(answer: Boolean) {
+        val active = runCatching { activeNotifications }.getOrNull().orEmpty()
+        val sbn = active.firstOrNull { it.notification?.category == Notification.CATEGORY_CALL } ?: return
+        val actions = sbn.notification.actions ?: return
+        val keywords = if (answer) listOf("answer", "accept", "接听")
+        else listOf("decline", "reject", "dismiss", "挂断")
+        val action = actions.firstOrNull { act ->
+            val title = act.title?.toString()?.lowercase().orEmpty()
+            keywords.any { title.contains(it) }
+        } ?: actions.getOrNull(if (answer) 0 else 1) ?: return
+        runCatching { action.actionIntent?.send() }
+            .onSuccess { BridgeLog.i("Calls", "Triggered call action '${action.title}'") }
+            .onFailure { BridgeLog.e("Calls", "Call notification action failed", it) }
     }
 
     private fun handleDismiss(key: String) {

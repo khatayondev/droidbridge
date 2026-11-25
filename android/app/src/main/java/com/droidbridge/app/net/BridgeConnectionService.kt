@@ -75,6 +75,7 @@ class BridgeConnectionService : LifecycleService() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         createNotificationChannels()
+        com.droidbridge.app.calls.CallController.start(this)
         startAsForeground("Searching for paired Mac…")
         registerNetworkCallback()
         registerBatteryReceiver()
@@ -325,6 +326,12 @@ class BridgeConnectionService : LifecycleService() {
                 val msg = Protocol.decodeJson<AppIconRequestPayload>(payload)
                 BridgeEventBus.emitIncoming(IncomingControlEvent.AppIconRequest(msg.pkg))
             }
+            Protocol.MSG_CALL_ANSWER -> com.droidbridge.app.calls.CallController.answer(this)
+            Protocol.MSG_CALL_END -> com.droidbridge.app.calls.CallController.end(this)
+            Protocol.MSG_CALL_DIAL -> {
+                val msg = Protocol.decodeJson<CallDialPayload>(payload)
+                com.droidbridge.app.calls.CallController.dial(this, msg.number)
+            }
             Protocol.MSG_MIRROR_REQUEST -> {
                 onMirrorRequestedFromMac()
             }
@@ -500,7 +507,7 @@ class BridgeConnectionService : LifecycleService() {
             deviceName = name,
             appVersion = BuildConfig.VERSION_NAME,
             protocolVersion = Protocol.PROTOCOL_VERSION,
-            capabilities = listOf("notifications", "mirror", "mirror_standby", "input", "clipboard")
+            capabilities = listOf("notifications", "mirror", "mirror_standby", "input", "clipboard", "calls")
         )
     }
 

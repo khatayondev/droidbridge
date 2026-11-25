@@ -322,7 +322,7 @@ public final class BridgeServer: ObservableObject {
                 deviceName: self.pairingManager.macName,
                 appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0",
                 protocolVersion: ProtocolConstants.protocolVersion,
-                capabilities: ["notifications", "mirror", "mirror_standby", "input", "clipboard"]
+                capabilities: ["notifications", "mirror", "mirror_standby", "input", "clipboard", "calls"]
             )
             if let localHelloData = try? JSONEncoder().encode(localHello) {
                 session.send(msgType: ProtocolConstants.msgHello, payload: localHelloData)

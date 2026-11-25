@@ -3,6 +3,25 @@ import AppKit
 import SwiftUI
 import ServiceManagement
 
+/// A call currently ringing or in progress on the paired phone.
+public struct ActiveCall: Equatable {
+    public enum Phase: String {
+        case ringing
+        case active
+    }
+
+    public var phase: Phase
+    public var name: String?
+    public var number: String?
+    public var startedAt: Date?
+
+    public var displayName: String {
+        if let n = name, !n.isEmpty { return n }
+        if let num = number, !num.isEmpty { return num }
+        return "Unknown caller"
+    }
+}
+
 /// Central coordinator owning networking, pairing, notifications, mirroring, input forwarding,
 /// clipboard sync, and launch-at-login management on macOS.
 public final class AppCoordinator: ObservableObject, BridgeServerDelegate {
@@ -12,6 +31,7 @@ public final class AppCoordinator: ObservableObject, BridgeServerDelegate {
         }
     }
     @Published public var launchAtLoginEnabled: Bool = false
+    @Published public private(set) var activeCall: ActiveCall?
 
     public let store: KeychainStore
     public let pairingManager: PairingManager
@@ -24,6 +44,7 @@ public final class AppCoordinator: ObservableObject, BridgeServerDelegate {
     private var mirrorWindowController: MirrorWindowController?
     private var pairingWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var callWindow: NSWindow?
 
     private var clipboardTimer: Timer?
     private var lastPasteboardChangeCount: Int = NSPasteboard.general.changeCount
@@ -149,6 +170,78 @@ public final class AppCoordinator: ObservableObject, BridgeServerDelegate {
         }
     }
 
+    // MARK: - Calls
+
+    public func openCallWindow() {
+        DispatchQueue.main.async {
+            if self.callWindow == nil {
+                let view = CallDialView { [weak self] number in
+                    self?.placeCall(number: number)
+                }
+                let win = NSWindow(
+                    contentRect: NSRect(x: 0, y: 0, width: 340, height: 170),
+                    styleMask: [.titled, .closable],
+                    backing: .buffered,
+                    defer: false
+                )
+                win.title = "Call a Number — DroidBridge"
+                win.contentView = NSHostingView(rootView: view)
+                win.center()
+                win.isReleasedWhenClosed = false
+                self.callWindow = win
+            }
+            self.callWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    public func placeCall(number: String) {
+        let trimmed = number.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        server.sendControl(type: ProtocolConstants.msgCallDial, payload: CallDialPayload(number: trimmed))
+    }
+
+    public func answerCall() {
+        server.sendControl(type: ProtocolConstants.msgCallAnswer, payload: EmptyPayload())
+    }
+
+    /// Declines a ringing call or hangs up an active one — the phone uses `endCall()` for both.
+    public func declineCall() {
+        server.sendControl(type: ProtocolConstants.msgCallEnd, payload: EmptyPayload())
+    }
+
+    private func handleCallState(_ payload: CallStatePayload) {
+        DispatchQueue.main.async {
+            switch payload.state {
+            case "ringing":
+                self.activeCall = ActiveCall(
+                    phase: .ringing,
+                    name: payload.name,
+                    number: payload.number,
+                    startedAt: nil
+                )
+                self.notificationManager.handleIncomingCall(name: payload.name, number: payload.number)
+            case "active":
+                self.notificationManager.handleCallEnded()
+                if var call = self.activeCall {
+                    call.phase = .active
+                    if call.startedAt == nil { call.startedAt = Date() }
+                    self.activeCall = call
+                } else {
+                    self.activeCall = ActiveCall(
+                        phase: .active,
+                        name: payload.name,
+                        number: payload.number,
+                        startedAt: Date()
+                    )
+                }
+            default:
+                self.activeCall = nil
+                self.notificationManager.handleCallEnded()
+            }
+        }
+    }
+
     // MARK: - Wiring
 
     private func wireCallbacks() {
@@ -178,6 +271,12 @@ public final class AppCoordinator: ObservableObject, BridgeServerDelegate {
         }
         notificationManager.onOpenMirrorForApp = { [weak self] pkg in
             self?.openMirrorWindow(launchPackage: pkg)
+        }
+        notificationManager.onAnswerCall = { [weak self] in
+            self?.answerCall()
+        }
+        notificationManager.onDeclineCall = { [weak self] in
+            self?.declineCall()
         }
 
         videoDecoder.onRequestKeyframe = { [weak self] in
@@ -228,6 +327,9 @@ public final class AppCoordinator: ObservableObject, BridgeServerDelegate {
             self.server.sendControl(type: ProtocolConstants.msgClipboard, payload: ClipboardPayload(text: text))
             self.server.sendControl(type: ProtocolConstants.msgInputText, payload: InputTextPayload(text: text))
         }
+        mirrorViewModel.onMakeCall = { [weak self] in
+            self?.openCallWindow()
+        }
     }
 
     // MARK: - BridgeServerDelegate
@@ -241,6 +343,10 @@ public final class AppCoordinator: ObservableObject, BridgeServerDelegate {
     public func bridgeServer(_ server: BridgeServer, didDisconnectControl phone: PairedPhone?) {
         videoDecoder.reset()
         telemetryRecorder.clearAndroidTelemetry()
+        DispatchQueue.main.async {
+            self.activeCall = nil
+            self.notificationManager.handleCallEnded()
+        }
         DispatchQueue.main.async {
             self.mirrorViewModel.uiState = .waitingForPhone
         }
@@ -267,6 +373,17 @@ public final class AppCoordinator: ObservableObject, BridgeServerDelegate {
         case ProtocolConstants.msgDeviceTelemetry:
             if let t = try? JSONDecoder().decode(DeviceTelemetryPayload.self, from: payload) {
                 telemetryRecorder.handleAndroidTelemetry(t)
+            }
+        case ProtocolConstants.msgCallState:
+            if let call = try? JSONDecoder().decode(CallStatePayload.self, from: payload) {
+                handleCallState(call)
+            }
+        case ProtocolConstants.msgCallResult:
+            if let result = try? JSONDecoder().decode(CallResultPayload.self, from: payload),
+               !result.ok {
+                notificationManager.notifyCallError(
+                    result.message ?? "The phone rejected the \(result.action) request."
+                )
             }
         case ProtocolConstants.msgClipboard:
             if let clip = try? JSONDecoder().decode(ClipboardPayload.self, from: payload),

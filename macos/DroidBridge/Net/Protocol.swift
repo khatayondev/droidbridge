@@ -56,6 +56,13 @@ public enum ProtocolConstants {
     public static let msgDeviceStatus: UInt8 = 0x41
     public static let msgDeviceTelemetry: UInt8 = 0x42
 
+    // Call control (phone <-> Mac)
+    public static let msgCallState: UInt8 = 0x50
+    public static let msgCallAnswer: UInt8 = 0x51
+    public static let msgCallEnd: UInt8 = 0x52
+    public static let msgCallDial: UInt8 = 0x53
+    public static let msgCallResult: UInt8 = 0x54
+
     // Video/Audio channel binary message types
     public static let msgVideoConfig: UInt8 = 0x80
     public static let msgVideoFrame: UInt8 = 0x81
@@ -242,6 +249,32 @@ public struct DeviceTelemetryPayload: Codable, Equatable {
     public let avgEncryptUs: Double
     public let avgSocketWriteMs: Double
     public let droppedFrames: Int64
+}
+
+public struct CallStatePayload: Codable, Equatable {
+    public let state: String // "idle" | "ringing" | "active"
+    public let name: String?
+    public let number: String?
+    public let key: String?
+    public let startTimeMs: Int64?
+
+    public init(state: String, name: String?, number: String?, key: String?, startTimeMs: Int64?) {
+        self.state = state
+        self.name = name
+        self.number = number
+        self.key = key
+        self.startTimeMs = startTimeMs
+    }
+}
+
+public struct CallDialPayload: Codable, Equatable {
+    public let number: String
+}
+
+public struct CallResultPayload: Codable, Equatable {
+    public let action: String
+    public let ok: Bool
+    public let message: String?
 }
 
 // MARK: - Binary Video / Audio Codecs

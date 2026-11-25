@@ -33,6 +33,8 @@ public final class NotificationBridgeManager: NSObject, ObservableObject, UNUser
     public var onSendDismiss: ((_ key: String) -> Void)?
     public var onRequestAppIcon: ((_ pkg: String) -> Void)?
     public var onOpenMirrorForApp: ((_ pkg: String?) -> Void)?
+    public var onAnswerCall: (() -> Void)?
+    public var onDeclineCall: (() -> Void)?
 
     private let defaults: UserDefaults
     private let iconCacheDir: URL
@@ -49,6 +51,11 @@ public final class NotificationBridgeManager: NSObject, ObservableObject, UNUser
     public static let categoryReplyable = "DROIDBRIDGE_REPLYABLE"
     public static let actionReplyId = "REPLY"
     public static let actionCustomPrefix = "ACTION_"
+
+    public static let categoryCall = "DROIDBRIDGE_CALL"
+    public static let actionCallAnswer = "CALL_ANSWER"
+    public static let actionCallDecline = "CALL_DECLINE"
+    public static let callNotificationId = "droidbridge.call"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -203,6 +210,57 @@ public final class NotificationBridgeManager: NSObject, ObservableObject, UNUser
         try? pngData.write(to: url, options: .atomic)
     }
 
+    // MARK: - Calls
+
+    /// Shows (or refreshes) a ringing-call banner with Answer / Decline actions.
+    public func handleIncomingCall(name: String?, number: String?) {
+        guard centerAvailable else { return }
+        let caller: String
+        if let n = name, !n.isEmpty {
+            caller = n
+        } else if let num = number, !num.isEmpty {
+            caller = num
+        } else {
+            caller = "Unknown caller"
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Incoming call"
+        content.subtitle = caller
+        content.body = (name?.isEmpty == false ? (number ?? "") : "")
+        content.categoryIdentifier = Self.categoryCall
+        content.sound = .default
+        content.interruptionLevel = .timeSensitive
+        content.userInfo = ["call": true]
+
+        let request = UNNotificationRequest(
+            identifier: Self.callNotificationId,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { _ in }
+    }
+
+    public func handleCallEnded() {
+        guard centerAvailable else { return }
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [Self.callNotificationId])
+        center.removePendingNotificationRequests(withIdentifiers: [Self.callNotificationId])
+    }
+
+    public func notifyCallError(_ message: String) {
+        guard centerAvailable else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Call action failed"
+        content.body = message
+        let request = UNNotificationRequest(
+            identifier: "droidbridge.call.error.\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { _ in }
+    }
+
     // MARK: - UNUserNotificationCenterDelegate
 
     public func userNotificationCenter(
@@ -222,6 +280,10 @@ public final class NotificationBridgeManager: NSObject, ObservableObject, UNUser
         let pkg = response.notification.request.content.userInfo["pkg"] as? String
 
         switch response.actionIdentifier {
+        case Self.actionCallAnswer:
+            onAnswerCall?()
+        case Self.actionCallDecline:
+            onDeclineCall?()
         case Self.actionReplyId:
             if let textResp = response as? UNTextInputNotificationResponse {
                 onSendReply?(key, textResp.userText)
@@ -261,9 +323,26 @@ public final class NotificationBridgeManager: NSObject, ObservableObject, UNUser
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
+        let answerAction = UNNotificationAction(
+            identifier: Self.actionCallAnswer,
+            title: "Answer",
+            options: []
+        )
+        let declineAction = UNNotificationAction(
+            identifier: Self.actionCallDecline,
+            title: "Decline",
+            options: [.destructive]
+        )
+        let callCat = UNNotificationCategory(
+            identifier: Self.categoryCall,
+            actions: [answerAction, declineAction],
+            intentIdentifiers: [],
+            options: []
+        )
         categoryLock.lock()
         registeredCategories[Self.categoryDefault] = defaultCat
         registeredCategories[Self.categoryReplyable] = replyCat
+        registeredCategories[Self.categoryCall] = callCat
         let all = Set(registeredCategories.values)
         categoryLock.unlock()
         center.setNotificationCategories(all)

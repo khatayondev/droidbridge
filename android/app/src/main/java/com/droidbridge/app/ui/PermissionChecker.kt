@@ -20,7 +20,8 @@ data class PermissionChecklistState(
     val accessibilityGranted: Boolean,
     val keyboardEnabled: Boolean,
     val batteryExemptionGranted: Boolean,
-    val cameraGranted: Boolean
+    val cameraGranted: Boolean,
+    val callsGranted: Boolean
 )
 
 object PermissionChecker {
@@ -31,7 +32,8 @@ object PermissionChecker {
         accessibilityGranted = hasAccessibilityAccess(context),
         keyboardEnabled = isBridgeKeyboardEnabled(context),
         batteryExemptionGranted = isIgnoringBatteryOptimizations(context),
-        cameraGranted = hasCameraPermission(context)
+        cameraGranted = hasCameraPermission(context),
+        callsGranted = hasReadPhoneState(context) && hasCallPhone(context) && hasAnswerPhoneCalls(context)
     )
 
     fun hasPostNotifications(context: Context): Boolean {
@@ -77,6 +79,24 @@ object PermissionChecker {
             Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
     }
+
+    fun hasReadPhoneState(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_PHONE_STATE
+        ) == PackageManager.PERMISSION_GRANTED
+
+    fun hasCallPhone(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CALL_PHONE
+        ) == PackageManager.PERMISSION_GRANTED
+
+    fun hasAnswerPhoneCalls(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ANSWER_PHONE_CALLS
+        ) == PackageManager.PERMISSION_GRANTED
 
     fun openAppInfo(context: Context) {
         val intent = Intent(

@@ -32,10 +32,13 @@ class NotificationFilter(
         isGroupSummary: Boolean,
         title: String?,
         text: String?,
-        hasMessages: Boolean
+        hasMessages: Boolean,
+        isCall: Boolean = false
     ): Boolean {
         if (pkg == ownPackageName) return true
-        if (isOngoing) return true
+        // Incoming/ongoing call notifications are inherently ongoing; they are routed through the
+        // dedicated call channel instead of being dropped here.
+        if (isOngoing && !isCall) return true
         if (isGroupSummary) return true
         if (title.isNullOrBlank() && text.isNullOrBlank() && !hasMessages) return true
         return false

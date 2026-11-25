@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.droidbridge.app.calls.CallController
 import com.droidbridge.app.mirror.MirrorConsentActivity
 import com.droidbridge.app.net.BridgeConnectionService
 import com.droidbridge.app.net.BridgeConnectionState
@@ -89,6 +90,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val keyStore = KeyStoreManager(this)
+        CallController.start(this)
         if (keyStore.isPaired()) {
             runCatching { BridgeConnectionService.start(this) }
         }
@@ -163,6 +165,12 @@ private fun DroidBridgeRoot(keyStore: KeyStoreManager) {
         } else {
             pairingFeedback = "Camera permission is needed to scan the QR code (or use Manual URI)."
         }
+    }
+
+    val callPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        perms = PermissionChecker.checkAll(context)
     }
 
     fun performPairing(rawUri: String) {
@@ -267,6 +275,15 @@ private fun DroidBridgeRoot(keyStore: KeyStoreManager) {
                     onOpenImeSettings = { PermissionChecker.openInputMethodSettings(context) },
                     onRequestBattery = { PermissionChecker.requestBatteryOptimizationExemption(context) },
                     onOpenDontKillMyApp = { PermissionChecker.openUrl(context, "https://dontkillmyapp.com") },
+                    onRequestCalls = {
+                        callPermLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.READ_PHONE_STATE,
+                                Manifest.permission.CALL_PHONE,
+                                Manifest.permission.ANSWER_PHONE_CALLS
+                            )
+                        )
+                    },
                     onScanQr = {
                         if (PermissionChecker.hasCameraPermission(context)) {
                             showQrScanner = true
@@ -520,6 +537,7 @@ private fun OnboardingChecklistScreen(
     onOpenImeSettings: () -> Unit,
     onRequestBattery: () -> Unit,
     onOpenDontKillMyApp: () -> Unit,
+    onRequestCalls: () -> Unit,
     onScanQr: () -> Unit,
     onManualUri: () -> Unit
 ) {
@@ -597,14 +615,22 @@ private fun OnboardingChecklistScreen(
             onAction = onOpenImeSettings
         )
 
-        // Step 6: Battery exemption + OEM tips
+        ChecklistCard(
+            step = "6. Call Control (Optional)",
+            description = "Shows incoming calls on your Mac with Answer/Decline and lets you dial from your Mac. Call audio still stays on the phone.",
+            granted = perms.callsGranted,
+            buttonLabel = "Grant",
+            onAction = onRequestCalls
+        )
+
+        // Step 7: Battery exemption + OEM tips
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusIcon(perms.batteryExemptionGranted)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "6. Battery & Background Survival",
+                        "7. Battery & Background Survival",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -628,14 +654,14 @@ private fun OnboardingChecklistScreen(
             }
         }
 
-        // Step 7: Pair with Mac
+        // Step 8: Pair with Mac
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusIcon(pairedMac != null)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "7. Pair with Your Mac",
+                        "8. Pair with Your Mac",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
